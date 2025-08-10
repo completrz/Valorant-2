@@ -2,235 +2,215 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Valorant 2.0 Mini Prototype</title>
+<title>Valorant 2.0 3D Prototype</title>
 <style>
-  body { margin:0; background:#111; overflow:hidden; color:#eee; font-family: Arial, sans-serif; }
-  #gameCanvas { background: #222; display: block; margin: 0 auto; border: 2px solid #444; }
-  #ui {
+  body { margin: 0; overflow: hidden; background: #111; color: #eee; font-family: Arial, sans-serif; }
+  #info {
     position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-    color: #eee; font-weight: bold; font-size: 18px;
-    user-select: none;
+    color: #eee; font-weight: bold; font-size: 18px; user-select:none;
+    z-index: 10;
   }
+  canvas { display: block; }
 </style>
 </head>
 <body>
-
-<canvas id="gameCanvas" width="800" height="600"></canvas>
-<div id="ui">
+<div id="info">
   Health: <span id="health">100</span> | Dash Cooldown: <span id="dashCooldown">Ready</span>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.155.0/examples/js/controls/PointerLockControls.js"></script>
+
 <script>
 (() => {
-  const canvas = document.getElementById('gameCanvas');
-  const ctx = canvas.getContext('2d');
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x222222);
 
-  const keys = {};
-  window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
-  window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
 
+  const renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  // Lighting
+  const light = new THREE.DirectionalLight(0xffffff, 1);
+  light.position.set(1, 10, 5);
+  scene.add(light);
+
+  // Floor
+  const floorGeo = new THREE.PlaneGeometry(100, 100);
+  const floorMat = new THREE.MeshPhongMaterial({color: 0x444444});
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = - Math.PI / 2;
+  floor.position.y = 0;
+  scene.add(floor);
+
+  // Player Setup
   const player = {
-    x: 400,
-    y: 300,
-    radius: 15,
-    speed: 200, // pixels per second
-    angle: 0,
-    health: 100,
+    height: 1.8,
+    speed: 5,  // units per second
+    dashSpeed: 20,
     dashCooldown: 0,
-    dashDuration: 0.2,
+    dashDuration: 0.3,
     isDashing: false,
-    dashSpeed: 600,
     dashTimeLeft: 0,
+    health: 100,
+    velocity: new THREE.Vector3(),
   };
 
-  const bullets = [];
-  const bulletSpeed = 500;
-  const bulletRadius = 5;
+  camera.position.y = player.height;
 
-  const enemy = {
-    x: 600,
-    y: 300,
-    radius: 20,
-    health: 50,
-  };
+  // Pointer Lock Controls
+  const controls = new THREE.PointerLockControls(camera, document.body);
+  document.body.addEventListener('click', () => {
+    controls.lock();
+  }, false);
 
+  controls.addEventListener('lock', () => {
+    console.log('Pointer locked');
+  });
+  controls.addEventListener('unlock', () => {
+    console.log('Pointer unlocked');
+  });
+
+  scene.add(controls.getObject());
+
+  // Movement input
+  const keys = {};
+  window.addEventListener('keydown', (e) => { keys[e.code] = true; });
+  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+  // Enemy cube
+  const enemyGeometry = new THREE.BoxGeometry(1, 1, 1);
+  const enemyMaterial = new THREE.MeshPhongMaterial({color: 0xff4444});
+  const enemy = new THREE.Mesh(enemyGeometry, enemyMaterial);
+  enemy.position.set(0, 0.5, -10);
+  scene.add(enemy);
+  enemy.health = 50;
+
+  // UI elements
   const healthText = document.getElementById('health');
   const dashCooldownText = document.getElementById('dashCooldown');
 
-  let lastTime = 0;
+  // Shooting variables
+  const raycaster = new THREE.Raycaster();
+  const shootCooldown = 0.3;
+  let shootTimer = 0;
 
-  // Mouse aiming
-  let mouseX = 0;
-  let mouseY = 0;
-  canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    mouseX = e.clientX - rect.left;
-    mouseY = e.clientY - rect.top;
-  });
+  // Dash variables
+  const dashCooldownTime = 3;
 
-  canvas.addEventListener('mousedown', () => {
-    shoot();
-  });
-
-  function shoot() {
-    if(player.isDashing) return; // no shooting while dashing
-    const dx = mouseX - player.x;
-    const dy = mouseY - player.y;
-    const angle = Math.atan2(dy, dx);
-    bullets.push({
-      x: player.x + Math.cos(angle) * player.radius,
-      y: player.y + Math.sin(angle) * player.radius,
-      vx: Math.cos(angle) * bulletSpeed,
-      vy: Math.sin(angle) * bulletSpeed,
-      radius: bulletRadius,
-    });
-  }
+  // Clock for delta time
+  const clock = new THREE.Clock();
 
   function update(dt) {
-    if(player.health <= 0) {
-      // Game over
-      return;
-    }
-
     // Update dash cooldown
-    if(player.dashCooldown > 0) player.dashCooldown -= dt;
+    if (player.dashCooldown > 0) player.dashCooldown -= dt;
+    if (player.dashCooldown < 0) player.dashCooldown = 0;
 
-    // Dash
-    if(keys['e'] && player.dashCooldown <= 0 && !player.isDashing) {
+    // Dash logic
+    if (keys['KeyE'] && player.dashCooldown === 0 && !player.isDashing) {
       player.isDashing = true;
       player.dashTimeLeft = player.dashDuration;
-      player.dashCooldown = 3; // 3 seconds cooldown
+      player.dashCooldown = dashCooldownTime;
     }
 
-    if(player.isDashing) {
+    if (player.isDashing) {
       player.dashTimeLeft -= dt;
-      if(player.dashTimeLeft <= 0) {
+      if (player.dashTimeLeft <= 0) {
         player.isDashing = false;
       }
-      // Move fast in facing direction
-      const dx = mouseX - player.x;
-      const dy = mouseY - player.y;
-      const angle = Math.atan2(dy, dx);
-      player.x += Math.cos(angle) * player.dashSpeed * dt;
-      player.y += Math.sin(angle) * player.dashSpeed * dt;
-    } else {
-      // Normal movement WASD
-      let moveX = 0, moveY = 0;
-      if(keys['w']) moveY -= 1;
-      if(keys['s']) moveY += 1;
-      if(keys['a']) moveX -= 1;
-      if(keys['d']) moveX += 1;
-
-      if(moveX !== 0 || moveY !== 0) {
-        const length = Math.sqrt(moveX*moveX + moveY*moveY);
-        moveX /= length;
-        moveY /= length;
-
-        player.x += moveX * player.speed * dt;
-        player.y += moveY * player.speed * dt;
-      }
     }
 
-    // Keep player in bounds
-    player.x = Math.min(Math.max(player.radius, player.x), canvas.width - player.radius);
-    player.y = Math.min(Math.max(player.radius, player.y), canvas.height - player.radius);
+    // Movement
+    if (controls.isLocked === true) {
+      player.velocity.set(0, 0, 0);
 
-    // Update bullets
-    for(let i = bullets.length - 1; i >= 0; i--) {
-      const b = bullets[i];
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
-
-      // Remove bullets out of bounds
-      if(b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
-        bullets.splice(i,1);
-        continue;
+      if (!player.isDashing) {
+        if (keys['KeyW']) player.velocity.z -= player.speed * dt;
+        if (keys['KeyS']) player.velocity.z += player.speed * dt;
+        if (keys['KeyA']) player.velocity.x -= player.speed * dt;
+        if (keys['KeyD']) player.velocity.x += player.speed * dt;
+      } else {
+        // Dash moves player forward fast
+        player.velocity.z -= player.dashSpeed * dt;
       }
 
-      // Check collision with enemy
-      const dx = b.x - enemy.x;
-      const dy = b.y - enemy.y;
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      if(dist < b.radius + enemy.radius) {
-        enemy.health -= 10;
-        bullets.splice(i,1);
-        if(enemy.health <= 0) {
-          alert('Enemy defeated! You win!');
-          resetGame();
-        }
-      }
+      // Move player relative to camera direction (XZ plane)
+      const direction = new THREE.Vector3();
+      controls.getDirection(direction);
+
+      // Extract forward and right vectors on XZ plane
+      const forward = new THREE.Vector3(direction.x, 0, direction.z).normalize();
+      const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), forward).normalize();
+
+      // Calculate movement
+      const move = new THREE.Vector3();
+      move.addScaledVector(forward, player.velocity.z);
+      move.addScaledVector(right, player.velocity.x);
+
+      controls.getObject().position.add(move);
+
+      // Keep player above floor
+      controls.getObject().position.y = player.height;
     }
 
-    // Update player facing angle (towards mouse)
-    player.angle = Math.atan2(mouseY - player.y, mouseX - player.x);
+    // Shoot cooldown timer
+    if (shootTimer > 0) shootTimer -= dt;
 
     // Update UI
     healthText.textContent = player.health;
     dashCooldownText.textContent = player.dashCooldown > 0 ? player.dashCooldown.toFixed(1) + 's' : 'Ready';
   }
 
+  function shoot() {
+    if (shootTimer > 0) return; // cooldown active
+    shootTimer = shootCooldown;
+
+    // Raycast from camera center forward
+    raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
+
+    const intersects = raycaster.intersectObject(enemy);
+    if (intersects.length > 0) {
+      enemy.health -= 10;
+      enemy.material.color.setHex(0xff0000);
+      setTimeout(() => enemy.material.color.setHex(0xff4444), 100);
+      if (enemy.health <= 0) {
+        alert('Enemy defeated! You win!');
+        resetGame();
+      }
+    }
+  }
+
   function resetGame() {
-    player.x = 400;
-    player.y = 300;
-    player.health = 100;
     enemy.health = 50;
+    enemy.position.set(0, 0.5, -10);
+    player.health = 100;
     player.dashCooldown = 0;
     player.isDashing = false;
-    bullets.length = 0;
+    controls.getObject().position.set(0, player.height, 0);
   }
 
-  function draw() {
-    ctx.clearRect(0,0,canvas.width,canvas.height);
+  window.addEventListener('click', () => {
+    if (controls.isLocked) shoot();
+  });
 
-    // Draw enemy
-    ctx.fillStyle = 'red';
-    ctx.beginPath();
-    ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI*2);
-    ctx.fill();
-
-    // Draw player
-    ctx.save();
-    ctx.translate(player.x, player.y);
-    ctx.rotate(player.angle);
-    ctx.fillStyle = 'cyan';
-    ctx.beginPath();
-    ctx.arc(0, 0, player.radius, 0, Math.PI*2);
-    ctx.fill();
-
-    // Draw a triangle "gun" pointing right
-    ctx.fillStyle = '#00ffff';
-    ctx.beginPath();
-    ctx.moveTo(player.radius, 0);
-    ctx.lineTo(player.radius - 10, -7);
-    ctx.lineTo(player.radius - 10, 7);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.restore();
-
-    // Draw bullets
-    ctx.fillStyle = 'yellow';
-    bullets.forEach(b => {
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, b.radius, 0, Math.PI*2);
-      ctx.fill();
-    });
-  }
-
-  function gameLoop(timestamp=0) {
-    if(!lastTime) lastTime = timestamp;
-    const dt = (timestamp - lastTime) / 1000;
-    lastTime = timestamp;
-
+  function animate() {
+    const dt = clock.getDelta();
     update(dt);
-    draw();
-
-    requestAnimationFrame(gameLoop);
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
   }
+
+  // Resize handler
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
 
   resetGame();
-  gameLoop();
+  animate();
 
 })();
 </script>
