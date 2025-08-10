@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Valorant 2.0 3D Prototype</title>
+<title>Valorant 2.0 3D Prototype - Fixed</title>
 <style>
   body { margin: 0; overflow: hidden; background: #111; color: #eee; font-family: Arial, sans-serif; }
   #info {
@@ -10,12 +10,22 @@
     color: #eee; font-weight: bold; font-size: 18px; user-select:none;
     z-index: 10;
   }
-  canvas { display: block; }
+  #instructions {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #eee; font-size: 24px; user-select:none;
+    background: rgba(0,0,0,0.7); padding: 20px; border-radius: 8px;
+    cursor: pointer;
+    max-width: 300px;
+    text-align: center;
+  }
 </style>
 </head>
 <body>
 <div id="info">
   Health: <span id="health">100</span> | Dash Cooldown: <span id="dashCooldown">Ready</span>
+</div>
+<div id="instructions">
+  Click to play<br>(WASD to move, Mouse to look, Left Click to shoot, E to dash)
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
@@ -24,7 +34,7 @@
 <script>
 (() => {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x222222);
+  scene.background = new THREE.Color(0x87ceeb); // light blue sky color
 
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
 
@@ -34,15 +44,19 @@
 
   // Lighting
   const light = new THREE.DirectionalLight(0xffffff, 1);
-  light.position.set(1, 10, 5);
+  light.position.set(10, 20, 10);
   scene.add(light);
+
+  const ambientLight = new THREE.AmbientLight(0x404040);
+  scene.add(ambientLight);
 
   // Floor
   const floorGeo = new THREE.PlaneGeometry(100, 100);
-  const floorMat = new THREE.MeshPhongMaterial({color: 0x444444});
+  const floorMat = new THREE.MeshPhongMaterial({color: 0x228B22}); // forest green
   const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = - Math.PI / 2;
   floor.position.y = 0;
+  floor.receiveShadow = true;
   scene.add(floor);
 
   // Player Setup
@@ -58,19 +72,22 @@
     velocity: new THREE.Vector3(),
   };
 
-  camera.position.y = player.height;
+  // Start camera at player's height
+  camera.position.set(0, player.height, 0);
 
   // Pointer Lock Controls
   const controls = new THREE.PointerLockControls(camera, document.body);
-  document.body.addEventListener('click', () => {
+
+  const instructions = document.getElementById('instructions');
+  instructions.addEventListener('click', () => {
     controls.lock();
-  }, false);
+  });
 
   controls.addEventListener('lock', () => {
-    console.log('Pointer locked');
+    instructions.style.display = 'none';
   });
   controls.addEventListener('unlock', () => {
-    console.log('Pointer unlocked');
+    instructions.style.display = 'block';
   });
 
   scene.add(controls.getObject());
@@ -214,6 +231,5 @@
 
 })();
 </script>
-
 </body>
 </html>
