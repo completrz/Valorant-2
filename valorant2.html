@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Valorant 2.0 Mini Prototype</title>
+<style>
+  body { margin:0; background:#111; overflow:hidden; color:#eee; font-family: Arial, sans-serif; }
+  #gameCanvas { background: #222; display: block; margin: 0 auto; border: 2px solid #444; }
+  #ui {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    color: #eee; font-weight: bold; font-size: 18px;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+<div id="ui">
+  Health: <span id="health">100</span> | Dash Cooldown: <span id="dashCooldown">Ready</span>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  const keys = {};
+  window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+  window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+  const player = {
+    x: 400,
+    y: 300,
+    radius: 15,
+    speed: 200, // pixels per second
+    angle: 0,
+    health: 100,
+    dashCooldown: 0,
+    dashDuration: 0.2,
+    isDashing: false,
+    dashSpeed: 600,
+    dashTimeLeft: 0,
+  };
+
+  const bullets = [];
+  const bulletSpeed = 500;
+  const bulletRadius = 5;
+
+  const enemy = {
+    x: 600,
+    y: 300,
+    radius: 20,
+    health: 50,
+  };
+
+  const healthText = document.getElementById('health');
+  const dashCooldownText = document.getElementById('dashCooldown');
+
+  let lastTime = 0;
+
+  // Mouse aiming
+  let mouseX = 0;
+  let mouseY = 0;
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+  });
+
+  canvas.addEventListener('mousedown', () => {
+    shoot();
+  });
+
+  function shoot() {
+    if(player.isDashing) return; // no shooting while dashing
+    const dx = mouseX - player.x;
+    const dy = mouseY - player.y;
+    const angle = Math.atan2(dy, dx);
+    bullets.push({
+      x: player.x + Math.cos(angle) * player.radius,
+      y: player.y + Math.sin(angle) * player.radius,
+      vx: Math.cos(angle) * bulletSpeed,
+      vy: Math.sin(angle) * bulletSpeed,
+      radius: bulletRadius,
+    });
+  }
+
+  function update(dt) {
+    if(player.health <= 0) {
+      // Game over
+      return;
+    }
+
+    // Update dash cooldown
+    if(player.dashCooldown > 0) player.dashCooldown -= dt;
+
+    // Dash
+    if(keys['e'] && player.dashCooldown <= 0 && !player.isDashing) {
+      player.isDashing = true;
+      player.dashTimeLeft = player.dashDuration;
+      player.dashCooldown = 3; // 3 seconds cooldown
+    }
+
+    if(player.isDashing) {
+      player.dashTimeLeft -= dt;
+      if(player.dashTimeLeft <= 0) {
+        player.isDashing = false;
+      }
+      // Move fast in facing direction
+      const dx = mouseX - player.x;
+      const dy = mouseY - player.y;
+      const angle = Math.atan2(dy, dx);
+      player.x += Math.cos(angle) * player.dashSpeed * dt;
+      player.y += Math.sin(angle) * player.dashSpeed * dt;
+    } else {
+      // Normal movement WASD
+      let moveX = 0, moveY = 0;
+      if(keys['w']) moveY -= 1;
+      if(keys['s']) moveY += 1;
+      if(keys['a']) moveX -= 1;
+      if(keys['d']) moveX += 1;
+
+      if(moveX !== 0 || moveY !== 0) {
+        const length = Math.sqrt(moveX*moveX + moveY*moveY);
+        moveX /= length;
+        moveY /= length;
+
+        player.x += moveX * player.speed * dt;
+        player.y += moveY * player.speed * dt;
+      }
+    }
+
+    // Keep player in bounds
+    player.x = Math.min(Math.max(player.radius, player.x), canvas.width - player.radius);
+    player.y = Math.min(Math.max(player.radius, player.y), canvas.height - player.radius);
+
+    // Update bullets
+    for(let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+
+      // Remove bullets out of bounds
+      if(b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+        bullets.splice(i,1);
+        continue;
+      }
+
+      // Check collision with enemy
+      const dx = b.x - enemy.x;
+      const dy = b.y - enemy.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if(dist < b.radius + enemy.radius) {
+        enemy.health -= 10;
+        bullets.splice(i,1);
+        if(enemy.health <= 0) {
+          alert('Enemy defeated! You win!');
+          resetGame();
+        }
+      }
+    }
+
+    // Update player facing angle (towards mouse)
+    player.angle = Math.atan2(mouseY - player.y, mouseX - player.x);
+
+    // Update UI
+    healthText.textContent = player.health;
+    dashCooldownText.textContent = player.dashCooldown > 0 ? player.dashCooldown.toFixed(1) + 's' : 'Ready';
+  }
+
+  function resetGame() {
+    player.x = 400;
+    player.y = 300;
+    player.health = 100;
+    enemy.health = 50;
+    player.dashCooldown = 0;
+    player.isDashing = false;
+    bullets.length = 0;
+  }
+
+  function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // Draw enemy
+    ctx.fillStyle = 'red';
+    ctx.beginPath();
+    ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI*2);
+    ctx.fill();
+
+    // Draw player
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle);
+    ctx.fillStyle = 'cyan';
+    ctx.beginPath();
+    ctx.arc(0, 0, player.radius, 0, Math.PI*2);
+    ctx.fill();
+
+    // Draw a triangle "gun" pointing right
+    ctx.fillStyle = '#00ffff';
+    ctx.beginPath();
+    ctx.moveTo(player.radius, 0);
+    ctx.lineTo(player.radius - 10, -7);
+    ctx.lineTo(player.radius - 10, 7);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+
+    // Draw bullets
+    ctx.fillStyle = 'yellow';
+    bullets.forEach(b => {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.radius, 0, Math.PI*2);
+      ctx.fill();
+    });
+  }
+
+  function gameLoop(timestamp=0) {
+    if(!lastTime) lastTime = timestamp;
+    const dt = (timestamp - lastTime) / 1000;
+    lastTime = timestamp;
+
+    update(dt);
+    draw();
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  resetGame();
+  gameLoop();
+
+})();
+</script>
+
+</body>
+</html>
