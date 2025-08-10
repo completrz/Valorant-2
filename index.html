@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Valorant 2.0 3D Prototype - Fixed</title>
+<title>Valorant 2.0 3D Prototype - Fixed Click</title>
 <style>
   body { margin: 0; overflow: hidden; background: #111; color: #eee; font-family: Arial, sans-serif; }
   #info {
@@ -17,6 +17,7 @@
     cursor: pointer;
     max-width: 300px;
     text-align: center;
+    z-index: 20;
   }
 </style>
 </head>
@@ -25,7 +26,7 @@
   Health: <span id="health">100</span> | Dash Cooldown: <span id="dashCooldown">Ready</span>
 </div>
 <div id="instructions">
-  Click to play<br>(WASD to move, Mouse to look, Left Click to shoot, E to dash)
+  Click anywhere to play<br>(WASD to move, Mouse to look, Left Click to shoot, E to dash)
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
@@ -34,7 +35,7 @@
 <script>
 (() => {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87ceeb); // light blue sky color
+  scene.background = new THREE.Color(0x87ceeb);
 
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
 
@@ -52,7 +53,7 @@
 
   // Floor
   const floorGeo = new THREE.PlaneGeometry(100, 100);
-  const floorMat = new THREE.MeshPhongMaterial({color: 0x228B22}); // forest green
+  const floorMat = new THREE.MeshPhongMaterial({color: 0x228B22});
   const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = - Math.PI / 2;
   floor.position.y = 0;
@@ -62,7 +63,7 @@
   // Player Setup
   const player = {
     height: 1.8,
-    speed: 5,  // units per second
+    speed: 5,
     dashSpeed: 20,
     dashCooldown: 0,
     dashDuration: 0.3,
@@ -72,22 +73,27 @@
     velocity: new THREE.Vector3(),
   };
 
-  // Start camera at player's height
   camera.position.set(0, player.height, 0);
 
   // Pointer Lock Controls
   const controls = new THREE.PointerLockControls(camera, document.body);
 
   const instructions = document.getElementById('instructions');
-  instructions.addEventListener('click', () => {
+
+  // Listen for click anywhere on document.body to lock pointer
+  function startGame() {
     controls.lock();
-  });
+  }
+  document.body.addEventListener('click', startGame);
 
   controls.addEventListener('lock', () => {
     instructions.style.display = 'none';
+    document.body.removeEventListener('click', startGame);
   });
+
   controls.addEventListener('unlock', () => {
     instructions.style.display = 'block';
+    document.body.addEventListener('click', startGame);
   });
 
   scene.add(controls.getObject());
@@ -121,11 +127,11 @@
   const clock = new THREE.Clock();
 
   function update(dt) {
-    // Update dash cooldown
+    if (player.health <= 0) return;
+
     if (player.dashCooldown > 0) player.dashCooldown -= dt;
     if (player.dashCooldown < 0) player.dashCooldown = 0;
 
-    // Dash logic
     if (keys['KeyE'] && player.dashCooldown === 0 && !player.isDashing) {
       player.isDashing = true;
       player.dashTimeLeft = player.dashDuration;
@@ -134,12 +140,9 @@
 
     if (player.isDashing) {
       player.dashTimeLeft -= dt;
-      if (player.dashTimeLeft <= 0) {
-        player.isDashing = false;
-      }
+      if (player.dashTimeLeft <= 0) player.isDashing = false;
     }
 
-    // Movement
     if (controls.isLocked === true) {
       player.velocity.set(0, 0, 0);
 
@@ -149,42 +152,33 @@
         if (keys['KeyA']) player.velocity.x -= player.speed * dt;
         if (keys['KeyD']) player.velocity.x += player.speed * dt;
       } else {
-        // Dash moves player forward fast
         player.velocity.z -= player.dashSpeed * dt;
       }
 
-      // Move player relative to camera direction (XZ plane)
       const direction = new THREE.Vector3();
       controls.getDirection(direction);
 
-      // Extract forward and right vectors on XZ plane
       const forward = new THREE.Vector3(direction.x, 0, direction.z).normalize();
       const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), forward).normalize();
 
-      // Calculate movement
       const move = new THREE.Vector3();
       move.addScaledVector(forward, player.velocity.z);
       move.addScaledVector(right, player.velocity.x);
 
       controls.getObject().position.add(move);
-
-      // Keep player above floor
       controls.getObject().position.y = player.height;
     }
 
-    // Shoot cooldown timer
     if (shootTimer > 0) shootTimer -= dt;
 
-    // Update UI
     healthText.textContent = player.health;
     dashCooldownText.textContent = player.dashCooldown > 0 ? player.dashCooldown.toFixed(1) + 's' : 'Ready';
   }
 
   function shoot() {
-    if (shootTimer > 0) return; // cooldown active
+    if (shootTimer > 0) return;
     shootTimer = shootCooldown;
 
-    // Raycast from camera center forward
     raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
 
     const intersects = raycaster.intersectObject(enemy);
@@ -219,7 +213,6 @@
     requestAnimationFrame(animate);
   }
 
-  // Resize handler
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth/window.innerHeight;
     camera.updateProjectionMatrix();
@@ -228,7 +221,6 @@
 
   resetGame();
   animate();
-
 })();
 </script>
 </body>
